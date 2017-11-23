@@ -1,0 +1,44 @@
+#!/bin/sh
+
+# This is based on the init script here:
+# https://github.com/looker/customer-scripts/blob/master/startup_scripts/looker
+# Running in a container, we don't want/need most of the spin up/down code.
+
+cd $HOME/looker 
+# set your java memory- there should be over 1.5G of system memory 
+# left to run the OS
+MEM=`cat /proc/meminfo | grep MemTotal | awk '{print $2}'`
+JM=`expr $MEM \* 6 / 10`
+JAVAMEM="${JM}k"
+METAMEM="800m"
+
+# Extra Java startup args and Looker startup args.  These can also be set in
+# a file named lookerstart.cfg
+JMXARGS="-Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote -Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote.port=9910 -Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote.ssl=false -Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote.local.only=false -Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote.authenticate=true -Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote.access.file=${HOME}/.lookerjmx/jmxremote.access -Dcom.sun.akuma.jvmarg.com.sun.management.jmxremote.password.file=${HOME}/.lookerjmx/jmxremote.password"
+
+# to set up JMX monitoring, add JMXARGS ot JAVAARGS
+JAVAARGS=""
+LOOKERARGS=""
+
+# check for a lookerstart.cfg file to set JAVAARGS and LOOKERARGS
+if [ -r ./lookerstart.cfg ]; then
+  . ./lookerstart.cfg
+fi
+
+# check if --no-ssl is specified in LOOKERARGS and set protocol accordingly
+PROTOCOL="https"
+echo "${LOOKERARGS}" | grep -q "\-\-no\-ssl"
+if [ $? -eq 0 ] 
+then
+	PROTOCOL='http'
+fi
+LOOKERPORT=${LOOKERPORT:-"9999"}
+
+java \
+  -XX:+UseG1GC -XX:MaxGCPauseMillis=2000 -XX:MaxMetaspaceSize=$METAMEM \
+  -Xms$JAVAMEM -Xmx$JAVAMEM \
+  -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCTimeStamps \
+  -Xloggc:/tmp/gc.log  ${JAVAARGS} \
+  -jar looker.jar start ${LOOKERARGS}
+
+tail -f ./log/looker.log
